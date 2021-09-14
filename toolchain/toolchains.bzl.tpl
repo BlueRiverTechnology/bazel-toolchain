@@ -13,7 +13,15 @@
 # limitations under the License.
 
 def llvm_register_toolchains():
-    native.register_toolchains(
-        "@%{repo_name}//:cc-toolchain-linux",
-        "@%{repo_name}//:cc-toolchain-darwin",
-    )
+    if "k8" in %{enable_cpus}:
+        native.register_toolchains(
+            "@%{repo_name}//:cc-toolchain-linux-k8",
+        )
+    if "aarch64" in %{enable_cpus}:
+        native.register_toolchains(
+            "@%{repo_name}//:cc-toolchain-linux-aarch64",
+        )
+    if "darwin" in %{enable_cpus}:
+        native.register_toolchains(
+            "@%{repo_name}//:cc-toolchain-darwin",
+        )

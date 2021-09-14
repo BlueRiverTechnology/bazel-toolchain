@@ -131,6 +131,26 @@ def _python(rctx):
     else:
         fail("python not found")
 
+def _do_download(rctx, mirror_base, llvm_version, basename, output = ""):
+    if basename not in _llvm_distributions:
+        fail("Unknown LLVM release: %s\nPlease ensure file name is correct." % basename)
+
+    url_suffix = "{0}/{1}".format(llvm_version, basename).replace("+", "%2B")
+    urls = []
+    if rctx.attr.use_llvm_distribution:
+        urls.append("{0}{1}".format(_llvm_distributions_base_url[llvm_version], url_suffix))
+    urls += [
+        "{0}/{1}".format(base, url_suffix)
+        for base in mirror_base
+    ]
+
+    rctx.download_and_extract(
+        urls,
+        sha256 = _llvm_distributions[basename],
+        stripPrefix = basename[:-len(".tar.xz")],
+        output = output,
+    )
+
 def download_llvm_preconfigured(rctx):
     llvm_version = rctx.attr.llvm_version
 
@@ -152,22 +172,20 @@ def download_llvm_preconfigured(rctx):
     else:
         basename = rctx.attr.distribution
 
-    if basename not in _llvm_distributions:
-        fail("Unknown LLVM release: %s\nPlease ensure file name is correct." % basename)
+    _do_download(rctx, mirror_base, llvm_version, basename)
 
-    url_suffix = "{0}/{1}".format(llvm_version, basename).replace("+", "%2B")
-    urls = [
-        "{0}{1}".format(_llvm_distributions_base_url[llvm_version], url_suffix)
-    ]
-    urls += [
-        "{0}/{1}".format(base, url_suffix) for base in mirror_base
-    ]
+    for cpu in rctx.attr.target_distribution:
+        _do_download(rctx, mirror_base, llvm_version, rctx.attr.target_distribution[cpu], "target-%s" % cpu)
 
-    rctx.download_and_extract(
-        urls,
-        sha256 = _llvm_distributions[basename],
-        stripPrefix = basename[:(len(basename) - len(".tar.xz"))],
-    )
+    for cpu in rctx.attr.enable_cpus:
+        libcxx_prefix = cpu + "-"
+        for name in rctx.attr.libcxx_urls:
+            if name.startswith(libcxx_prefix):
+                rctx.download_and_extract(
+                    rctx.attr.libcxx_urls[name],
+                    sha256 = rctx.attr.libcxx_sha256.get(name, ""),
+                    output = "libcxx-" + name,
+                )
 
 # Download LLVM from the user-provided URLs and return True. If URLs were not provided, return
 # False.

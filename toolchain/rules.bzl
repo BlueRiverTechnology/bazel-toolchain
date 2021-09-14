@@ -34,13 +34,32 @@ llvm_toolchain = repository_rule(
                    "specified in the llvm_version attribute. A special value of " +
                    "'auto' tries to detect the version based on host OS."),
         ),
+        "target_distribution": attr.string_dict(
+            default = {},
+            doc = ("An optional LLVM pre-built binary distribution filename to use " +
+                   "the `target/` directory from, keyed by the CPU type (e.g. k8 or " +
+                   "darwin). This is helpful when cross compiling. " +
+                   "See the documentation for 'distribution' for details."),
+        ),
+        "enable_cpus": attr.string_list(
+            default = ["k8", "darwin", "aarch64"],
+        ),
+        "go_support": attr.bool(
+            default = True,
+            doc = ("Enable GoLink+GoCompile via binutils on the host. " +
+                   "Disable this to allow building C/C++ code without requiring binutils " +
+                   "to be installed on the host."),
+        ),
         "sysroot": attr.string_dict(
             mandatory = False,
-            doc = ("System path or fileset for each OS type (linux and darwin) used to indicate " +
+            doc = ("System path or fileset for each CPU type (e.g. k8 or darwin) used to indicate " +
                    "the set of files that form the sysroot for the compiler. If the value begins " +
                    "with exactly one forward slash '/', then the value is assumed to be a system " +
                    "path. Else, the value will be assumed to be a label containing the files and " +
                    "the sysroot path will be taken as the path to the package of this label."),
+        ),
+        "cuda_path": attr.string_dict(
+            mandatory = False,
         ),
         "cxx_builtin_include_directories": attr.string_list_dict(
             mandatory = False,
@@ -51,9 +70,14 @@ llvm_toolchain = repository_rule(
         "llvm_mirror": attr.string(
             doc = "Mirror base for LLVM binaries if using the pre-configured URLs.",
         ),
+        "use_llvm_distribution": attr.bool(
+            default = True,
+            doc = ("Try downloading from the official LLVM distribution location. " +
+                   " Setting this to false is helpful if you want to ensure all the files you use are mirrored somewhere."),
+        ),
         "absolute_paths": attr.bool(
             default = False,
-            doc = "Use absolute paths in the toolchain. Avoids sandbox overhead.",
+            doc = "Use absolute paths in the toolchain. Avoids sandbox overhead but breaks remote builds and caching.",
         ),
         "_llvm_release_name": attr.label(
             default = "@com_grail_bazel_toolchain//toolchain/tools:llvm_release_name.py",
@@ -73,7 +97,14 @@ llvm_toolchain = repository_rule(
             mandatory = False,
             doc = "Path prefix to strip from the extracted files.",
         ),
+        "libcxx_urls": attr.string_list_dict(
+            mandatory = False,
+        ),
+        "libcxx_sha256": attr.string_dict(
+            mandatory = False,
+        ),
     },
     local = False,
     implementation = _llvm_toolchain_impl,
+    remotable = True,
 )

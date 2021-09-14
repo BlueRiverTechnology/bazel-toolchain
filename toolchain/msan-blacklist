@@ -1,0 +1,13 @@
+# msan isn't compatible with exceptions by default. Blacklisting this function
+# is the accepted workaround. Some references:
+#   https://github.com/google/oss-fuzz/issues/1099
+#   https://github.com/google/oss-fuzz/commit/8db9a9081badddcdbad46577a81f0771887f410b
+#   https://github.com/google/sanitizers/issues/1155
+#   https://bugs.llvm.org/show_bug.cgi?id=31877
+fun:__gxx_personality_*
+
+# zlib doesn't really do msan. It's really tricky to dive into the guts of it
+# and blacklist things selectively, so just do the whole thing.
+# https://github.com/madler/zlib/issues/518 is an example of one that some of
+# our tests hit (via libpng via opencv).
+src:external/zlib/*

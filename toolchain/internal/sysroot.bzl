@@ -29,26 +29,33 @@ def _default_sysroot(rctx):
     else:
         return ""
 
-# Return the sysroot path and the label to the files, if sysroot is not a system path.
+def _tool_path(rctx, attr_value, default):
+    tool_path = {}
+    tool = {}
+    for cpu in rctx.attr.enable_cpus:
+        tool_value = attr_value.get(cpu, default = "")
+
+        if not tool_value:
+            tool_path[cpu] = default
+            continue
+
+        # If the path is an absolute path, use it as-is. Check for things that
+        # start with "/" and not "//" to identify absolute paths, but also support
+        # passing the path as "/" to indicate the root directory.
+        if tool_value[0] == "/" and (len(tool_value) == 1 or tool_value[1] != "/"):
+            tool_path[cpu] = tool_value
+            continue
+
+        tool[cpu] = Label(tool_value)
+        if tool[cpu].workspace_root:
+            tool_path[cpu] = tool[cpu].workspace_root + "/" + tool[cpu].package
+        else:
+            tool_path[cpu] = tool[cpu].package
+    return tool_path, tool
+
+# Return the sysroot path and the label to the files, if sysroot is not a system path, for each CPU.
 def sysroot_path(rctx):
-    if rctx.os.name == "linux":
-        sysroot = rctx.attr.sysroot.get("linux", default = "")
-    elif rctx.os.name == "mac os x":
-        sysroot = rctx.attr.sysroot.get("darwin", default = "")
-    else:
-        fail("Unsupported OS: " + rctx.os.name)
+    return _tool_path(rctx, rctx.attr.sysroot, _default_sysroot(rctx))
 
-    if not sysroot:
-        return (_default_sysroot(rctx), None)
-
-    # If the sysroot is an absolute path, use it as-is. Check for things that
-    # start with "/" and not "//" to identify absolute paths, but also support
-    # passing the sysroot as "/" to indicate the root directory.
-    if sysroot[0] == "/" and (len(sysroot) == 1 or sysroot[1] != "/"):
-        return (sysroot, None)
-
-    sysroot = Label(sysroot)
-    if sysroot.workspace_root:
-        return (sysroot.workspace_root + "/" + sysroot.package, sysroot)
-    else:
-        return (sysroot.package, sysroot)
+def cuda_path(rctx):
+    return _tool_path(rctx, rctx.attr.cuda_path, None)

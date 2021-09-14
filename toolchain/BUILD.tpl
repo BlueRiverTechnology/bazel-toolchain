@@ -33,63 +33,12 @@ filegroup(
 
 filegroup(
     name = "sysroot_components",
-    srcs = [%{sysroot_label}],
+    srcs = %{sysroot_labels},
 )
 
-cc_toolchain_suite(
-    name = "toolchain",
-    toolchains = {
-        "k8|clang": ":cc-clang-linux",
-        "darwin|clang": ":cc-clang-darwin",
-        "k8": ":cc-clang-linux",
-        "darwin": ":cc-clang-darwin",
-    },
-)
+load(":cc_toolchain_config.bzl", "do_toolchain_configs")
 
-load(":cc_toolchain_config.bzl", "cc_toolchain_config")
-
-cc_toolchain_config(
-    name = "local_linux",
-    cpu = "k8",
-)
-
-cc_toolchain_config(
-    name = "local_darwin",
-    cpu = "darwin",
-)
-
-toolchain(
-    name = "cc-toolchain-darwin",
-    exec_compatible_with = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:osx",
-    ],
-    target_compatible_with = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:osx",
-    ],
-    toolchain = ":cc-clang-darwin",
-    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
-)
-
-toolchain(
-    name = "cc-toolchain-linux",
-    exec_compatible_with = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    target_compatible_with = [
-        "@platforms//cpu:x86_64",
-        "@platforms//os:linux",
-    ],
-    toolchain = ":cc-clang-linux",
-    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
-)
-
-load("@com_grail_bazel_toolchain//toolchain:rules.bzl", "conditional_cc_toolchain")
-
-conditional_cc_toolchain("cc-clang-linux", False, %{absolute_paths})
-conditional_cc_toolchain("cc-clang-darwin", True, %{absolute_paths})
+do_toolchain_configs()
 
 ## LLVM toolchain files
 # Needed when not using absolute paths.
@@ -115,22 +64,24 @@ filegroup(
 filegroup(
     name = "include",
     srcs = glob([
-        "include/c++/**",
-        "lib/clang/%{llvm_version}/include/**",
-    ]),
+        "libcxx-*/include/c++/**",
+    ] + ["%sinclude/c++/**" % maybe_target for maybe_target in %{all_maybe_target}]
+    + ["%slib/clang/%{llvm_version}/include/**" % maybe_target for maybe_target in %{all_maybe_target}]
+    ),
 )
 
 filegroup(
     name = "lib",
     srcs = glob(
         [
-            "lib/lib*.a",
-            "lib/clang/%{llvm_version}/lib/**/*.a",
-        ],
+            "libcxx-*/lib/lib*.a",
+        ] + ["%slib/lib*.a" % maybe_target for maybe_target in %{all_maybe_target}]
+        + ["%slib/clang/%{llvm_version}/lib/**/*.a" % maybe_target for maybe_target in %{all_maybe_target}]
+        + ["%slib/clang/%{llvm_version}/lib/**/*.a.syms" % maybe_target for maybe_target in %{all_maybe_target}],
         exclude = [
-            "lib/libLLVM*.a",
-            "lib/libclang*.a",
-            "lib/liblld*.a",
+            "**/lib/libLLVM*.a",
+            "**/lib/libclang*.a",
+            "**/lib/liblld*.a",
         ],
     ),
 )
@@ -141,7 +92,8 @@ filegroup(
         ":clang",
         ":include",
         ":sysroot_components",
-    ],
+        "@com_grail_bazel_toolchain//toolchain:blacklists",
+    ] + %{cuda_path_labels},
 )
 
 filegroup(
@@ -165,6 +117,11 @@ filegroup(
 filegroup(
     name = "objcopy",
     srcs = ["bin/llvm-objcopy"],
+)
+
+filegroup(
+    name = "strip",
+    srcs = ["bin/llvm-strip"],
 )
 
 filegroup(
@@ -193,6 +150,21 @@ filegroup(
 )
 
 filegroup(
+    name = "clang-format",
+    srcs = ["bin/clang-format"],
+)
+
+filegroup(
+    name = "git-clang-format",
+    srcs = ["bin/git-clang-format"],
+)
+
+sh_binary(
+    name = "llvm-cov",
+    srcs = ["bin/llvm-cov"],
+)
+
+filegroup(
     name = "binutils_components",
     srcs = glob(["bin/*"]),
 )
@@ -205,6 +177,7 @@ filegroup(
         ":ar",
         ":lib",
         ":sysroot_components",
+        "@com_grail_bazel_toolchain//toolchain:blacklists",
     ],
 )
 

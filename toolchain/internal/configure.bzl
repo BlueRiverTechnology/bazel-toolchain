@@ -19,6 +19,7 @@ load(
 )
 load(
     "@com_grail_bazel_toolchain//toolchain/internal:sysroot.bzl",
+    _cuda_path = "cuda_path",
     _sysroot_path = "sysroot_path",
 )
 load("@rules_cc//cc:defs.bzl", _cc_toolchain = "cc_toolchain")
@@ -29,12 +30,6 @@ def _makevars_ld_flags(rctx):
 
     # lld, as of LLVM 7, is experimental for Mach-O, so we use it only on linux.
     return "-fuse-ld=lld"
-
-def _include_dirs_str(rctx, cpu):
-    dirs = rctx.attr.cxx_builtin_include_directories.get(cpu)
-    if not dirs:
-        return ""
-    return ("\n" + 12 * " ").join(["\"%s\"," % d for d in dirs])
 
 def llvm_toolchain_impl(rctx):
     if rctx.os.name.startswith("windows"):
@@ -47,25 +42,53 @@ def llvm_register_toolchains():
 
     repo_path = str(rctx.path(""))
     relative_path_prefix = "external/%s/" % rctx.name
+    maybe_target = {
+        cpu: "target-%s/" % cpu
+        for cpu in rctx.attr.enable_cpus
+        if cpu in rctx.attr.target_distribution.keys()
+    }
+    all_maybe_target = list(maybe_target.values())
+    for cpu in rctx.attr.enable_cpus:
+        if cpu not in rctx.attr.target_distribution.keys():
+            all_maybe_target.append("")
+            break
     if rctx.attr.absolute_paths:
-        toolchain_path_prefix = (repo_path + "/")
+        toolchain_path_prefix = repo_path + "/"
     else:
         toolchain_path_prefix = relative_path_prefix
 
+    additional_cxx_builtin_include_directories = {
+        cpu: rctx.attr.cxx_builtin_include_directories.get(cpu, [])
+        for cpu in rctx.attr.enable_cpus
+    }
+
     sysroot_path, sysroot = _sysroot_path(rctx)
+    sysroot_labels = [str(label) for label in sysroot.values() if label]
+    sysroot_prefix = {
+        cpu: "%sysroot%" if sysroot_path[cpu] else ""
+        for cpu in rctx.attr.enable_cpus
+    }
+
+    cuda_path, cuda_labels = _cuda_path(rctx)
+    cuda_path_labels = [str(label) for label in cuda_labels.values() if label]
+
     substitutions = {
         "%{repo_name}": rctx.name,
         "%{llvm_version}": rctx.attr.llvm_version,
         "%{toolchain_path_prefix}": toolchain_path_prefix,
-        "%{tools_path_prefix}": (repo_path + "/") if rctx.attr.absolute_paths else "",
+        "%{tools_path_prefix}": (repo_path + "/") if rctx.attr.absolute_paths else relative_path_prefix,
         "%{debug_toolchain_path_prefix}": relative_path_prefix,
-        "%{sysroot_path}": sysroot_path,
-        "%{sysroot_prefix}": "%sysroot%" if sysroot_path else "",
-        "%{sysroot_label}": "\"%s\"" % str(sysroot) if sysroot else "",
+        "%{sysroot_path}": repr(sysroot_path),
+        "%{sysroot_prefix}": repr(sysroot_prefix),
+        "%{sysroot_labels}": repr(sysroot_labels),
+        "%{cuda_path}": repr(cuda_path),
+        "%{cuda_path_labels}": repr(cuda_path_labels),
         "%{absolute_paths}": "True" if rctx.attr.absolute_paths else "False",
         "%{makevars_ld_flags}": _makevars_ld_flags(rctx),
-        "%{k8_additional_cxx_builtin_include_directories}": _include_dirs_str(rctx, "k8"),
-        "%{darwin_additional_cxx_builtin_include_directories}": _include_dirs_str(rctx, "darwin"),
+        "%{maybe_target}": repr(maybe_target),
+        "%{all_maybe_target}": repr(all_maybe_target),
+        "%{enable_cpus}": repr(rctx.attr.enable_cpus),
+        "%{additional_cxx_builtin_include_directories}": repr(additional_cxx_builtin_include_directories),
     }
 
     rctx.template(
@@ -94,26 +117,28 @@ def llvm_register_toolchains():
         substitutions,
     )
 
-    rctx.symlink("/usr/bin/ar", "bin/ar")  # For GoLink.
+    if rctx.attr.go_support:
+        rctx.symlink("/usr/bin/ar", "bin/ar")  # For GoLink.
 
-    # For GoCompile on macOS; compiler path is set from linker path.
-    # It also helps clang driver sometimes for the linker to be colocated with the compiler.
-    rctx.symlink("/usr/bin/ld", "bin/ld")
-    if rctx.os.name == "linux":
-        rctx.symlink("/usr/bin/ld.gold", "bin/ld.gold")
+        # For GoCompile on macOS; compiler path is set from linker path.
+        # It also helps clang driver sometimes for the linker to be colocated with the compiler.
+        rctx.symlink("/usr/bin/ld", "bin/ld")
+        if rctx.os.name == "linux":
+            rctx.symlink("/usr/bin/ld.gold", "bin/ld.gold")
+        else:
+            # Add dummy file for non-linux so we don't have to put conditional logic in BUILD.
+            rctx.file("bin/ld.gold")
     else:
-        # Add dummy file for non-linux so we don't have to put conditional logic in BUILD.
+        # Add dummy files so we don't have to put conditional logic in BUILD
+        rctx.file("bin/ld")
         rctx.file("bin/ld.gold")
 
     # Repository implementation functions can be restarted, keep expensive ops at the end.
     if not _download_llvm(rctx):
         _download_llvm_preconfigured(rctx)
 
-def conditional_cc_toolchain(name, darwin, absolute_paths = False):
+def conditional_cc_toolchain(name, toolchain_config, darwin, absolute_paths = False):
     # Toolchain macro for BUILD file to use conditional logic.
-
-    toolchain_config = "local_darwin" if darwin else "local_linux"
-    toolchain_identifier = "clang-darwin" if darwin else "clang-linux"
 
     if absolute_paths:
         _cc_toolchain(
@@ -143,7 +168,7 @@ def conditional_cc_toolchain(name, darwin, absolute_paths = False):
             dwp_files = ":empty",
             linker_files = name + "-linker-files",
             objcopy_files = ":objcopy",
-            strip_files = ":empty",
+            strip_files = ":strip",
             supports_param_files = 0 if darwin else 1,
             toolchain_config = toolchain_config,
         )

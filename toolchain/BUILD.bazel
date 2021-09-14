@@ -21,3 +21,11 @@ exports_files(
         exclude = ["BUILD.bazel"],
     ),
 )
+
+filegroup(
+    name = "blacklists",
+    srcs = [
+        "msan-blacklist",
+    ],
+    visibility = ["//visibility:public"],
+)
